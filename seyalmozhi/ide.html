@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="ta">
+<head>
+<meta charset="UTF-8">
+<title>செயல்மொழி — IDE</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#0a0a0a; --line:#0a0a0a;
+    --muted:#6b6b6b; --panel:#f5f5f5; --accent:#0a0a0a;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font-family:'Courier New',ui-monospace,monospace;}
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 22px;border-bottom:2px solid var(--line);
+  }
+  .brand{display:flex;align-items:baseline;gap:10px;}
+  .brand .glyph{font-size:22px;font-weight:900;letter-spacing:1px;}
+  .brand .sub{font-size:11px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;}
+  .actions{display:flex;gap:10px;align-items:center;}
+  button{
+    font-family:inherit;background:var(--fg);color:var(--bg);
+    border:2px solid var(--fg);padding:8px 16px;font-size:13px;
+    letter-spacing:1px;cursor:pointer;text-transform:uppercase;
+  }
+  button.ghost{background:var(--bg);color:var(--fg);}
+  button:hover{opacity:.75;}
+  select{
+    font-family:inherit;background:var(--bg);color:var(--fg);
+    border:2px solid var(--fg);padding:7px 10px;font-size:12px;
+  }
+  .layout{display:grid;grid-template-columns:1fr 1fr;height:calc(100vh - 58px);}
+  @media (max-width:860px){.layout{grid-template-columns:1fr;height:auto;}}
+  .pane{display:flex;flex-direction:column;min-height:0;}
+  .pane + .pane{border-left:2px solid var(--line);}
+  @media (max-width:860px){.pane + .pane{border-left:none;border-top:2px solid var(--line);}}
+  .pane-head{
+    padding:8px 16px;border-bottom:1px solid var(--line);
+    font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);
+    display:flex;justify-content:space-between;
+  }
+  .editor-wrap{flex:1;display:flex;min-height:300px;position:relative;overflow:hidden;}
+  #gutter{
+    width:44px;padding:14px 6px 14px 0;text-align:right;color:var(--muted);
+    font-size:14px;line-height:22px;user-select:none;background:var(--panel);
+    border-right:1px solid var(--line);overflow:hidden;white-space:pre;
+  }
+  #editor{
+    flex:1;border:none;outline:none;resize:none;padding:14px 16px;
+    font-family:inherit;font-size:14px;line-height:22px;color:var(--fg);
+    background:var(--bg);white-space:pre;overflow:auto;tab-size:4;
+  }
+  #console{
+    flex:1;margin:0;padding:14px 16px;overflow:auto;font-size:13.5px;
+    line-height:1.6;white-space:pre-wrap;background:var(--fg);color:var(--bg);
+    min-height:220px;
+  }
+  #console .err{color:#ffffff;background:#333;display:inline-block;padding:1px 4px;}
+  #console .ok-flag{color:#bdbdbd;}
+  .cursor-blink{display:inline-block;width:8px;background:var(--bg);animation:blink 1s steps(1) infinite;}
+  @keyframes blink{50%{opacity:0;}}
+  footer{padding:8px 16px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);
+    display:flex;justify-content:space-between;letter-spacing:.5px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <span class="glyph">செயல்மொழி</span>
+    <span class="sub">Seyal&nbsp;Mozhi&nbsp;IDE</span>
+  </div>
+  <div class="actions">
+    <select id="samples"></select>
+    <button class="ghost" id="clearBtn">அழி (Clear)</button>
+    <button id="runBtn">▶ ஓடு (Run) &nbsp;⌘⏎</button>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="pane">
+    <div class="pane-head"><span>நிரல் (Program)</span><span id="lineCount">1 வரி</span></div>
+    <div class="editor-wrap">
+      <div id="gutter">1</div>
+      <textarea id="editor" spellcheck="false"></textarea>
+    </div>
+  </div>
+  <div class="pane">
+    <div class="pane-head"><span>வெளியீடு (Output)</span><span id="status">தயார் (ready)</span></div>
+    <pre id="console">இங்கே வெளியீடு தெரியும்... (output will appear here)
+▶ ஓடு (Run) பட்டனை அழுத்தவும்.<span class="cursor-blink">&nbsp;</span></pre>
+  </div>
+</div>
+
+<footer>
+  <span>Tamil-keyword language · brace-block syntax · black &amp; white terminal theme</span>
+  <span id="clock"></span>
+</footer>
+
+<script>
+/* =========================================================================
+   செயல்மொழி (Seyal Mozhi) — JavaScript port of the language runtime.
+   Mirrors the Python reference implementation (lexer -> parser -> evaluator)
+   so the browser IDE can execute programs with no backend/install needed.
+   ========================================================================= */
+
+const KEYWORDS = {
+  "வை":"LET", "மாறி":"LET", "அச்சிடு":"PRINT", "என்றால்":"IF",
+  "இல்லைஎன்றால்":"ELIF", "இல்லை":"ELSE", "வரைக்கும்":"WHILE",
+  "ஒவ்வொன்றாக":"FOR", "இல்":"IN", "செயல்":"FUNC", "திருப்பு":"RETURN",
+  "நிறுத்து":"BREAK", "தொடர்":"CONTINUE", "உண்மை":"TRUE", "பொய்":"FALSE",
+  "வெறுமை":"NONE", "மற்றும்":"AND", "அல்லது":"OR", "அல்ல":"NOT",
+  "இறக்குமதி":"IMPORT", "ஆக":"AS"
+};
+
+const IDENT_RE = /[A-Za-z_\u0B80-\u0BFF][A-Za-z0-9_\u0B80-\u0BFF]*/y;
+const NUM_RE = /\d+\.\d+|\d+/y;
+
+class SeyalError extends Error {
+  constructor(msg, line){ super(line!=null?`வரி ${line}: ${msg}`:msg); this.line=line; }
+}
+
+function tokenize(src){
+  const toks=[]; let i=0, line=1; const n=src.length;
+  const push=(type,value)=>toks.push({type,value,line});
+  while(i<n){
+    const ch=src[i];
+    if(ch==='\n'){push('NEWLINE','\n'); line++; i++; continue;}
+    if(ch===' '||ch==='\t'||ch==='\r'){i++; continue;}
+    if(ch==='#'){ while(i<n && src[i]!=='\n') i++; continue; }
+    if(ch==='"'||ch==="'"){
+      const quote=ch; let j=i+1; let out='';
+      while(j<n && src[j]!==quote){
+        if(src[j]==='\\' && j+1<n){
+          const esc=src[j+1];
+          const map={n:'\n',t:'\t',r:'\r','"':'"',"'":"'",'\\':'\\'};
+          out += (esc in map) ? map[esc] : ('\\'+esc);
+          j+=2;
+        } else { out+=src[j]; j++; }
+      }
+      if(j>=n) throw new SeyalError("முடிவடையாத சரம் (unterminated string)", line);
+      push('STRING', out); i=j+1; continue;
+    }
+    NUM_RE.lastIndex=i;
+    let m=NUM_RE.exec(src);
+    if(m && m.index===i){
+      const text=m[0];
+      push('NUMBER', text.includes('.')?parseFloat(text):parseInt(text,10));
+      i+=text.length; continue;
+    }
+    IDENT_RE.lastIndex=i;
+    m=IDENT_RE.exec(src);
+    if(m && m.index===i){
+      const text=m[0];
+      push(KEYWORDS[text]||'IDENT', text);
+      i+=text.length; continue;
+    }
+    const two=src.substr(i,2);
+    const twoOps={'**':'POW','//':'FLOORDIV','==':'EQ','!=':'NEQ','<=':'LE','>=':'GE'};
+    if(twoOps[two]){ push(twoOps[two], two); i+=2; continue; }
+    const oneOps={'=':'ASSIGN','<':'LT','>':'GT','+':'PLUS','-':'MINUS','*':'STAR',
+      '/':'SLASH','%':'PERCENT','(':'LPAREN',')':'RPAREN','{':'LBRACE','}':'RBRACE',
+      '[':'LBRACK',']':'RBRACK',',':'COMMA',':':'COLON','.':'DOT',';':'SEMI'};
+    if(oneOps[ch]){ push(oneOps[ch], ch); i++; continue; }
+    throw new SeyalError(`புரியாத எழுத்து '${ch}' (unexpected character)`, line);
+  }
+  push('EOF', null);
+  return toks;
+}
+
+class Parser{
+  constructor(tokens){ this.t=tokens; this.p=0; }
+  peek(o=0){ return this.t[this.p+o]; }
+  at(...types){ return types.includes(this.peek().type); }
+  advance(){ const tok=this.t[this.p]; if(tok.type!=='EOF') this.p++; return tok; }
+  expect(type){
+    const tok=this.peek();
+    if(tok.type!==type) throw new SeyalError(`'${type}' எதிர்பார்க்கப்பட்டது (expected ${type}, got ${tok.type})`, tok.line);
+    return this.advance();
+  }
+  skipTerm(){ while(this.at('NEWLINE','SEMI')) this.advance(); }
+
+  parseProgram(){
+    const stmts=[]; this.skipTerm();
+    while(!this.at('EOF')){ stmts.push(this.parseStatement()); this.skipTerm(); }
+    return {type:'Program', statements:stmts};
+  }
+  parseBlock(){
+    this.expect('LBRACE'); this.skipTerm();
+    const stmts=[];
+    while(!this.at('RBRACE','EOF')){ stmts.push(this.parseStatement()); this.skipTerm(); }
+    this.expect('RBRACE');
+    return stmts;
+  }
+  parseStatement(){
+    const tok=this.peek();
+    if(tok.type==='LET') return this.parseLet();
+    if(tok.type==='PRINT') return this.parsePrint();
+    if(tok.type==='IF') return this.parseIf();
+    if(tok.type==='WHILE') return this.parseWhile();
+    if(tok.type==='FOR') return this.parseFor();
+    if(tok.type==='FUNC') return this.parseFuncDef();
+    if(tok.type==='RETURN'){
+      const line=this.advance().line;
+      if(this.at('NEWLINE','SEMI','RBRACE','EOF')) return {type:'Return', expr:null, line};
+      return {type:'Return', expr:this.parseExpr(), line};
+    }
+    if(tok.type==='BREAK'){ const line=this.advance().line; return {type:'Break', line}; }
+    if(tok.type==='CONTINUE'){ const line=this.advance().line; return {type:'Continue', line}; }
+    if(tok.type==='IMPORT') return this.parseImport();
+    if(tok.type==='IDENT'){
+      const save=this.p;
+      let target=this.parsePostfix(this.parsePrimary());
+      if(this.at('ASSIGN')){
+        const line=this.advance().line;
+        const expr=this.parseExpr();
+        return {type:'Assign', target, expr, line};
+      }
+      this.p=save;
+    }
+    const expr=this.parseExpr();
+    return {type:'ExprStmt', expr, line:tok.line};
+  }
+  parseLet(){
+    const line=this.advance().line;
+    const name=this.expect('IDENT').value;
+    this.expect('ASSIGN');
+    const expr=this.parseExpr();
+    return {type:'Let', name, expr, line};
+  }
+  parsePrint(){
+    const line=this.advance().line;
+    this.expect('LPAREN');
+    const args=[];
+    if(!this.at('RPAREN')){
+      args.push(this.parseExpr());
+      while(this.at('COMMA')){ this.advance(); args.push(this.parseExpr()); }
+    }
+    this.expect('RPAREN');
+    return {type:'Print', args, line};
+  }
+  parseIf(){
+    const line=this.advance().line;
+    const branches=[];
+    this.expect('LPAREN'); const cond=this.parseExpr(); this.expect('RPAREN');
+    branches.push([cond, this.parseBlock()]);
+    this.lookaheadTerm();
+    while(this.at('ELIF')){
+      this.advance();
+      this.expect('LPAREN'); const c=this.parseExpr(); this.expect('RPAREN');
+      branches.push([c, this.parseBlock()]);
+      this.lookaheadTerm();
+    }
+    let elseBody=null;
+    if(this.at('ELSE')){ this.advance(); elseBody=this.parseBlock(); }
+    return {type:'If', branches, elseBody, line};
+  }
+  lookaheadTerm(){
+    const save=this.p;
+    while(this.at('NEWLINE','SEMI')) this.advance();
+    if(!this.at('ELIF','ELSE')) this.p=save;
+  }
+  parseWhile(){
+    const line=this.advance().line;
+    this.expect('LPAREN'); const cond=this.parseExpr(); this.expect('RPAREN');
+    const body=this.parseBlock();
+    return {type:'While', cond, body, line};
+  }
+  parseFor(){
+    const line=this.advance().line;
+    const name=this.expect('IDENT').value;
+    this.expect('IN');
+    const iterable=this.parseExpr();
+    const body=this.parseBlock();
+    return {type:'For', name, iterable, body, line};
+  }
+  parseFuncDef(){
+    const line=this.advance().line;
+    const name=this.expect('IDENT').value;
+    this.expect('LPAREN');
+    const params=[];
+    if(!this.at('RPAREN')){
+      params.push(this.expect('IDENT').value);
+      while(this.at('COMMA')){ this.advance(); params.push(this.expect('IDENT').value); }
+    }
+    this.expect('RPAREN');
+    const body=this.parseBlock();
+    return {type:'FuncDef', name, params, body, line};
+  }
+  parseImport(){
+    const line=this.advance().line;
+    const modTok=this.expect('STRING');
+    let alias=null;
+    if(this.at('AS')){ this.advance(); alias=this.expect('IDENT').value; }
+    return {type:'Import', moduleName:modTok.value, alias, line};
+  }
+  parseExpr(){ return this.parseOr(); }
+  parseOr(){ let l=this.parseAnd(); while(this.at('OR')){ const line=this.advance().line; l={type:'BinOp',op:'OR',left:l,right:this.parseAnd(),line}; } return l; }
+  parseAnd(){ let l=this.parseNot(); while(this.at('AND')){ const line=this.advance().line; l={type:'BinOp',op:'AND',left:l,right:this.parseNot(),line}; } return l; }
+  parseNot(){ if(this.at('NOT')){ const line=this.advance().line; return {type:'UnaryOp',op:'NOT',operand:this.parseNot(),line}; } return this.parseComparison(); }
+  parseComparison(){
+    let l=this.parseAddSub();
+    while(this.at('EQ','NEQ','LT','GT','LE','GE')){ const op=this.advance(); l={type:'BinOp',op:op.type,left:l,right:this.parseAddSub(),line:op.line}; }
+    return l;
+  }
+  parseAddSub(){
+    let l=this.parseMulDiv();
+    while(this.at('PLUS','MINUS')){ const op=this.advance(); l={type:'BinOp',op:op.type,left:l,right:this.parseMulDiv(),line:op.line}; }
+    return l;
+  }
+  parseMulDiv(){
+    let l=this.parseUnary();
+    while(this.at('STAR','SLASH','PERCENT','FLOORDIV')){ const op=this.advance(); l={type:'BinOp',op:op.type,left:l,right:this.parseUnary(),line:op.line}; }
+    return l;
+  }
+  parseUnary(){
+    if(this.at('MINUS','PLUS')){ const op=this.advance(); return {type:'UnaryOp',op:op.type,operand:this.parseUnary(),line:op.line}; }
+    return this.parsePower();
+  }
+  parsePower(){
+    let base=this.parsePostfix(this.parsePrimary());
+    if(this.at('POW')){ const line=this.advance().line; return {type:'BinOp',op:'POW',left:base,right:this.parseUnary(),line}; }
+    return base;
+  }
+  parsePostfix(node){
+    for(;;){
+      if(this.at('LPAREN')){
+        const line=this.advance().line; const args=[];
+        if(!this.at('RPAREN')){
+          args.push(this.parseExpr());
+          while(this.at('COMMA')){ this.advance(); args.push(this.parseExpr()); }
+        }
+        this.expect('RPAREN');
+        node={type:'Call', callee:node, args, line};
+      } else if(this.at('LBRACK')){
+        const line=this.advance().line; const idx=this.parseExpr(); this.expect('RBRACK');
+        node={type:'Index', obj:node, index:idx, line};
+      } else if(this.at('DOT')){
+        const line=this.advance().line; const name=this.expect('IDENT').value;
+        node={type:'Attr', obj:node, name, line};
+      } else break;
+    }
+    return node;
+  }
+  parsePrimary(){
+    const tok=this.peek();
+    if(tok.type==='NUMBER'){ this.advance(); return {type:'Number', value:tok.value}; }
+    if(tok.type==='STRING'){ this.advance(); return {type:'String', value:tok.value}; }
+    if(tok.type==='TRUE'){ this.advance(); return {type:'Bool', value:true}; }
+    if(tok.type==='FALSE'){ this.advance(); return {type:'Bool', value:false}; }
+    if(tok.type==='NONE'){ this.advance(); return {type:'NoneLit'}; }
+    if(tok.type==='IDENT'){ this.advance(); return {type:'Ident', name:tok.value, line:tok.line}; }
+    if(tok.type==='LPAREN'){ this.advance(); const e=this.parseExpr(); this.expect('RPAREN'); return e; }
+    if(tok.type==='LBRACK'){
+      this.advance(); const items=[];
+      if(!this.at('RBRACK')){
+        items.push(this.parseExpr());
+        while(this.at('COMMA')){ this.advance(); items.push(this.parseExpr()); }
+      }
+      this.expect('RBRACK');
+      return {type:'ListLit', items};
+    }
+    throw new SeyalError(`எதிர்பாராத குறியீடு '${tok.value}' (unexpected token)`, tok.line);
+  }
+}
+
+class BreakSig{} class ContinueSig{} class ReturnSig{ constructor(v){this.value=v;} }
+
+class Env{
+  constructor(parent=null){ this.vars=new Map(); this.parent=parent; }
+  get(name, line){
+    let e=this;
+    while(e){ if(e.vars.has(name)) return e.vars.get(name); e=e.parent; }
+    throw new SeyalError(`'${name}' எனும் பெயர் அறியப்படவில்லை (undefined name)`, line);
+  }
+  setExisting(name, value){
+    let e=this;
+    while(e){ if(e.vars.has(name)){ e.vars.set(name,value); return true; } e=e.parent; }
+    return false;
+  }
+  declare(name, value){ this.vars.set(name, value); }
+}
+
+class SeyalFunction{
+  constructor(name, params, body, closureEnv, interp){
+    this.name=name; this.params=params; this.body=body; this.closureEnv=closureEnv; this.interp=interp;
+    this.isSeyalFn=true;
+  }
+  call(args){
+    if(args.length!==this.params.length){
+      throw new SeyalError(`'${this.name}' செயலுக்கு ${this.params.length} அளவுருக்கள் தேவை, ${args.length} கொடுக்கப்பட்டது (wrong number of arguments)`);
+    }
+    const local=new Env(this.closureEnv);
+    this.params.forEach((p,i)=>local.declare(p, args[i]));
+    try{ this.interp.execBlock(this.body, local); }
+    catch(r){ if(r instanceof ReturnSig) return r.value; throw r; }
+    return null;
+  }
+}
+
+function tamilStr(v){
+  if(v===true) return 'உண்மை';
+  if(v===false) return 'பொய்';
+  if(v===null||v===undefined) return 'வெறுமை';
+  if(Array.isArray(v)) return '['+v.map(tamilStr).join(', ')+']';
+  if(v && v.isSeyalFn) return `<செயல் ${v.name}>`;
+  if(typeof v === 'number') return String(v);
+  return String(v);
+}
+function truthy(v){
+  if(Array.isArray(v)) return v.length>0;
+  return !!v && v!=='';
+}
+
+// A tiny "standard library" playing the role of imported Python modules,
+// so `இறக்குமதி "math" ஆக கணிதம்` works the same way conceptually in-browser.
+const FAKE_MODULES = {
+  math: { sqrt:Math.sqrt, pi:Math.PI, floor:Math.floor, ceil:Math.ceil, pow:Math.pow, e:Math.E, sin:Math.sin, cos:Math.cos, log:Math.log },
+  random: { random:Math.random, randint:(a,b)=>Math.floor(Math.random()*(b-a+1))+a },
+};
+
+class Interpreter{
+  constructor(printFn){
+    this.print = printFn || (s=>console.log(s));
+    this.globals = new Env();
+    this.installBuiltins();
+  }
+  installBuiltins(){
+    const g=this.globals;
+    g.declare('நீளம்', (x)=>x.length);
+    g.declare('வரம்பு', (...a)=>{
+      let start=0, stop, step=1;
+      if(a.length===1) stop=a[0]; else if(a.length===2){start=a[0]; stop=a[1];} else {start=a[0]; stop=a[1]; step=a[2];}
+      const out=[]; if(step>0) for(let i=start;i<stop;i+=step) out.push(i); else for(let i=start;i>stop;i+=step) out.push(i);
+      return out;
+    });
+    g.declare('எண்ணாக்கு', (x)=>parseInt(x,10));
+    g.declare('தசமமாக்கு', (x)=>parseFloat(x));
+    g.declare('சரமாக்கு', (x)=>tamilStr(x));
+    g.declare('சேர்', (lst,v)=>{ lst.push(v); return lst; });
+    g.declare('நீக்கு', (lst,idx)=>{ if(idx===undefined) return lst.pop(); const v=lst[idx]; lst.splice(idx,1); return v; });
+    g.declare('வரிசைப்படுத்து', (lst)=>[...lst].sort((a,b)=> a<b?-1:a>b?1:0));
+    g.declare('அதிகபட்சம்', (...a)=> a.length>1 ? Math.max(...a) : Math.max(...a[0]));
+    g.declare('குறைந்தபட்சம்', (...a)=> a.length>1 ? Math.min(...a) : Math.min(...a[0]));
+    g.declare('முழுமையாக', (x)=>Math.abs(x));
+    g.declare('வகை', (x)=> Array.isArray(x)?'list': typeof x);
+  }
+  run(source){
+    const tokens=tokenize(source);
+    const tree=new Parser(tokens).parseProgram();
+    this.execBlock(tree.statements, this.globals);
+  }
+  execBlock(stmts, env){ for(const s of stmts) this.execStmt(s, env); }
+  execStmt(stmt, env){
+    switch(stmt.type){
+      case 'Let': return env.declare(stmt.name, this.eval(stmt.expr, env));
+      case 'Assign': {
+        const value=this.eval(stmt.expr, env);
+        const t=stmt.target;
+        if(t.type==='Ident'){ if(!env.setExisting(t.name, value)) env.declare(t.name, value); }
+        else if(t.type==='Index'){ const obj=this.eval(t.obj, env); const idx=this.eval(t.index, env); obj[idx]=value; }
+        else if(t.type==='Attr'){ const obj=this.eval(t.obj, env); obj[t.name]=value; }
+        else throw new SeyalError('இதற்கு மதிப்பை வைக்க முடியாது (invalid assignment target)', stmt.line);
+        return;
+      }
+      case 'Print': { const vals=stmt.args.map(a=>this.eval(a, env)); this.print(vals.map(tamilStr).join(' ')); return; }
+      case 'If': {
+        for(const [cond, body] of stmt.branches){
+          if(truthy(this.eval(cond, env))){ this.execBlock(body, new Env(env)); return; }
+        }
+        if(stmt.elseBody) this.execBlock(stmt.elseBody, new Env(env));
+        return;
+      }
+      case 'While': {
+        while(truthy(this.eval(stmt.cond, env))){
+          try{ this.execBlock(stmt.body, new Env(env)); }
+          catch(e){ if(e instanceof BreakSig) break; if(e instanceof ContinueSig) continue; throw e; }
+        }
+        return;
+      }
+      case 'For': {
+        const iterable=this.eval(stmt.iterable, env);
+        for(const item of iterable){
+          const loopEnv=new Env(env); loopEnv.declare(stmt.name, item);
+          try{ this.execBlock(stmt.body, loopEnv); }
+          catch(e){ if(e instanceof BreakSig) break; if(e instanceof ContinueSig) continue; throw e; }
+        }
+        return;
+      }
+      case 'FuncDef': { const fn=new SeyalFunction(stmt.name, stmt.params, stmt.body, env, this); env.declare(stmt.name, fn); return; }
+      case 'Return': throw new ReturnSig(stmt.expr!=null ? this.eval(stmt.expr, env) : null);
+      case 'Break': throw new BreakSig();
+      case 'Continue': throw new ContinueSig();
+      case 'Import': {
+        const mod=FAKE_MODULES[stmt.moduleName];
+        if(!mod) throw new SeyalError(`'${stmt.moduleName}' எனும் நூலகம் இந்த IDE-யில் இல்லை (module not available in the browser IDE)`, stmt.line);
+        env.declare(stmt.alias || stmt.moduleName, mod);
+        return;
+      }
+      case 'ExprStmt': this.eval(stmt.expr, env); return;
+      default: throw new SeyalError('தெரியாத கட்டளை (unknown statement)');
+    }
+  }
+  eval(node, env){
+    switch(node.type){
+      case 'Number': case 'String': case 'Bool': return node.value;
+      case 'NoneLit': return null;
+      case 'Ident': return env.get(node.name, node.line);
+      case 'ListLit': return node.items.map(i=>this.eval(i, env));
+      case 'Index': {
+        const obj=this.eval(node.obj, env); const idx=this.eval(node.index, env);
+        if(idx<0 || idx>=obj.length) throw new SeyalError('குறியீடு எல்லை தாண்டியது (index out of range)', node.line);
+        return obj[idx];
+      }
+      case 'Attr': {
+        const obj=this.eval(node.obj, env);
+        if(!(node.name in obj)) throw new SeyalError('பண்பு இல்லை (no such attribute)', node.line);
+        const v=obj[node.name];
+        return (typeof v==='function') ? v.bind(obj) : v;
+      }
+      case 'UnaryOp': {
+        const v=this.eval(node.operand, env);
+        if(node.op==='MINUS') return -v;
+        if(node.op==='PLUS') return +v;
+        if(node.op==='NOT') return !truthy(v);
+        break;
+      }
+      case 'BinOp': {
+        if(node.op==='AND'){ const l=this.eval(node.left,env); return truthy(l) ? this.eval(node.right,env) : l; }
+        if(node.op==='OR'){ const l=this.eval(node.left,env); return truthy(l) ? l : this.eval(node.right,env); }
+        const l=this.eval(node.left, env), r=this.eval(node.right, env);
+        switch(node.op){
+          case 'PLUS': return l+r;
+          case 'MINUS': return l-r;
+          case 'STAR': return l*r;
+          case 'SLASH': if(r===0) throw new SeyalError('பூஜ்ஜியத்தால் வகுக்க முடியாது (division by zero)', node.line); return l/r;
+          case 'FLOORDIV': if(r===0) throw new SeyalError('பூஜ்ஜியத்தால் வகுக்க முடியாது (division by zero)', node.line); return Math.floor(l/r);
+          case 'PERCENT': return l%r;
+          case 'POW': return Math.pow(l,r);
+          case 'EQ': return Array.isArray(l)&&Array.isArray(r) ? JSON.stringify(l)===JSON.stringify(r) : l===r;
+          case 'NEQ': return Array.isArray(l)&&Array.isArray(r) ? JSON.stringify(l)!==JSON.stringify(r) : l!==r;
+          case 'LT': return l<r; case 'GT': return l>r; case 'LE': return l<=r; case 'GE': return l>=r;
+        }
+        break;
+      }
+      case 'Call': {
+        const callee=this.eval(node.callee, env);
+        const args=node.args.map(a=>this.eval(a, env));
+        if(callee instanceof SeyalFunction) return callee.call(args);
+        if(typeof callee==='function') return callee(...args);
+        throw new SeyalError('இது ஒரு செயல் அல்ல, அழைக்க முடியாது (not callable)', node.line);
+      }
+    }
+    throw new SeyalError('தெரியாத வெளிப்பாடு (unknown expression)');
+  }
+}
+
+/* ------------------------------- IDE wiring ------------------------------ */
+
+const SAMPLES = {
+  "வணக்கம் (Hello World)": `# வணக்கம் - முதல் நிரல்\nஅச்சிடு("வணக்கம் உலகம்!")\n\nவை பெயர் = "தமிழ்"\nஅச்சிடு("என் மொழியின் பெயர்:", பெயர்)`,
+  "பிப்பனாச்சி (Fibonacci)": `செயல் பிப(n) {\n    என்றால் (n <= 1) {\n        திருப்பு n\n    }\n    திருப்பு பிப(n - 1) + பிப(n - 2)\n}\n\nஒவ்வொன்றாக i இல் வரம்பு(10) {\n    அச்சிடு(பிப(i))\n}`,
+  "தொடர்பெருக்கம் (Factorial)": `செயல் தொடர்பெருக்கம்(n) {\n    வை பலன் = 1\n    வை i = 1\n    வரைக்கும் (i <= n) {\n        பலன் = பலன் * i\n        i = i + 1\n    }\n    திருப்பு பலன்\n}\n\nஅச்சிடு("5! =", தொடர்பெருக்கம்(5))`,
+  "பட்டியல் (Lists)": `வை எண்கள் = [4, 9, 1, 7, 2]\nசேர்(எண்கள், 15)\nஅச்சிடு("பட்டியல்:", எண்கள்)\nஅச்சிடு("வரிசைப்படுத்தியது:", வரிசைப்படுத்து(எண்கள்))\n\nஒவ்வொன்றாக n இல் எண்கள் {\n    என்றால் (n % 2 == 0) {\n        அச்சிடு(n, "- இரட்டைப்படை (even)")\n    } இல்லை {\n        அச்சிடு(n, "- ஒற்றைப்படை (odd)")\n    }\n}`,
+  "பைத்தான் இணைப்பு (Python interop)": `இறக்குமதி "math" ஆக கணிதம்\nஅச்சிடு("வர்க்கமூலம் 81:", கணிதம்.sqrt(81))\nஅச்சிடு("பை மதிப்பு:", கணிதம்.pi)`,
+};
+
+const editor=document.getElementById('editor');
+const gutter=document.getElementById('gutter');
+const consoleEl=document.getElementById('console');
+const statusEl=document.getElementById('status');
+const lineCountEl=document.getElementById('lineCount');
+const samplesSel=document.getElementById('samples');
+
+for(const name in SAMPLES){
+  const opt=document.createElement('option'); opt.value=name; opt.textContent=name;
+  samplesSel.appendChild(opt);
+}
+samplesSel.addEventListener('change', ()=>{ editor.value=SAMPLES[samplesSel.value]; syncGutter(); });
+
+function syncGutter(){
+  const lines=editor.value.split('\n').length;
+  let out=''; for(let i=1;i<=lines;i++) out+=i+'\n';
+  gutter.textContent=out;
+  lineCountEl.textContent = lines + ' வரி';
+}
+editor.addEventListener('input', syncGutter);
+editor.addEventListener('scroll', ()=>{ gutter.scrollTop=editor.scrollTop; });
+editor.addEventListener('keydown', (e)=>{
+  if(e.key==='Tab'){ e.preventDefault();
+    const s=editor.selectionStart, en=editor.selectionEnd;
+    editor.value = editor.value.slice(0,s)+'    '+editor.value.slice(en);
+    editor.selectionStart=editor.selectionEnd=s+4;
+    syncGutter();
+  }
+});
+document.addEventListener('keydown', (e)=>{
+  if((e.metaKey||e.ctrlKey) && e.key==='Enter'){ e.preventDefault(); runProgram(); }
+});
+
+function runProgram(){
+  const src=editor.value;
+  const lines=[];
+  const interp=new Interpreter(s=>lines.push(escapeHtml(s)));
+  statusEl.textContent='ஓடுகிறது... (running)';
+  const start=performance.now();
+  try{
+    interp.run(src);
+    const ms=(performance.now()-start).toFixed(1);
+    consoleEl.innerHTML = (lines.length ? lines.join('\n') : '(வெளியீடு இல்லை / no output)')
+      + `\n\n<span class="ok-flag">— முடிந்தது (finished) in ${ms}ms —</span>`;
+    statusEl.textContent='வெற்றி (success)';
+  }catch(err){
+    consoleEl.innerHTML = (lines.length ? lines.join('\n')+'\n\n' : '')
+      + `<span class="err">பிழை (error): ${escapeHtml(err.message)}</span>`;
+    statusEl.textContent='பிழை (error)';
+  }
+}
+function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+document.getElementById('runBtn').addEventListener('click', runProgram);
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  consoleEl.textContent='இங்கே வெளியீடு தெரியும்...';
+});
+
+function tickClock(){
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('ta-IN');
+}
+setInterval(tickClock, 1000); tickClock();
+
+// initial sample
+editor.value = SAMPLES["வணக்கம் (Hello World)"];
+syncGutter();
+</script>
+</body>
+</html>
