@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Selective Blur</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#14161a;
+    --panel:#1b1e24;
+    --panel-alt:#21252c;
+    --border:#2c3139;
+    --border-strong:#3a414c;
+    --text:#e7e9ec;
+    --text-dim:#9199a3;
+    --text-faint:#5b6169;
+    --accent:#4c9aff;
+    --accent-soft:rgba(76,154,255,0.14);
+    --accent-strong:#7db4ff;
+    --danger:#e0755c;
+    --radius:6px;
+    --font-ui:'IBM Plex Sans',-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --font-mono:'IBM Plex Mono','SF Mono',Consolas,'Liberation Mono',monospace;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font-ui);
+    -webkit-font-smoothing:antialiased;
+    user-select:none;
+    min-height:100vh;
+  }
+
+  .app{
+    max-width:1320px;
+    margin:0 auto;
+    padding:28px 24px 60px;
+  }
+
+  header.top{
+    margin-bottom:22px;
+  }
+  header.top h1{
+    font-size:22px;
+    font-weight:600;
+    margin:0 0 6px;
+    letter-spacing:-0.01em;
+  }
+  header.top p{
+    margin:0;
+    color:var(--text-dim);
+    font-size:14px;
+    max-width:56ch;
+    line-height:1.5;
+  }
+
+  .layout{
+    display:grid;
+    grid-template-columns:1fr 336px;
+    gap:20px;
+    align-items:start;
+  }
+  @media (max-width:900px){
+    .layout{grid-template-columns:1fr;}
+  }
+
+  /* ---------- canvas stage ---------- */
+  .stage{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:18px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    min-height:420px;
+    position:relative;
+  }
+
+  .stage-toolbar{
+    width:100%;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:14px;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+  .stage-toolbar .file-info{
+    font-family:var(--font-mono);
+    font-size:12px;
+    color:var(--text-faint);
+  }
+
+  .canvas-frame{
+    width:100%;
+    flex:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:
+      linear-gradient(45deg,#1d2026 25%,transparent 25%),
+      linear-gradient(-45deg,#1d2026 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#1d2026 75%),
+      linear-gradient(-45deg,transparent 75%,#1d2026 75%);
+    background-size:20px 20px;
+    background-position:0 0,0 10px,10px -10px,-10px 0px;
+    background-color:#17191e;
+    border:1px solid var(--border);
+    border-radius:4px;
+    min-height:340px;
+    overflow:hidden;
+  }
+
+  canvas#displayCanvas{
+    max-width:100%;
+    max-height:64vh;
+    width:auto;
+    height:auto;
+    display:block;
+    touch-action:none;
+    cursor:default;
+  }
+
+  .hint-row{
+    margin-top:10px;
+    font-size:12.5px;
+    color:var(--text-faint);
+    text-align:center;
+    min-height:16px;
+  }
+
+  /* ---------- dropzone ---------- */
+  .dropzone{
+    width:100%;
+    flex:1;
+    min-height:340px;
+    border:1.5px dashed var(--border-strong);
+    border-radius:4px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+    cursor:pointer;
+    transition:border-color .15s ease,background-color .15s ease;
+    text-align:center;
+    padding:20px;
+  }
+  .dropzone:hover, .dropzone.dragover{
+    border-color:var(--accent);
+    background:var(--accent-soft);
+  }
+  .dropzone svg{color:var(--text-faint);}
+  .dropzone:hover svg, .dropzone.dragover svg{color:var(--accent);}
+  .dropzone .primary{font-size:15px;font-weight:500;color:var(--text);}
+  .dropzone .secondary{font-size:13px;color:var(--text-dim);}
+
+  .error-msg{
+    margin-top:10px;
+    color:var(--danger);
+    font-size:13px;
+    text-align:center;
+  }
+
+  /* ---------- control panel ---------- */
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:6px 18px 18px;
+  }
+  .panel-section{
+    padding:16px 0;
+    border-bottom:1px solid var(--border);
+  }
+  .panel-section:last-child{border-bottom:none;}
+  .panel-section h2{
+    font-size:12.5px;
+    font-weight:600;
+    color:var(--text-dim);
+    margin:0 0 10px;
+    letter-spacing:0.01em;
+  }
+
+  .btn-row{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  button{
+    font-family:var(--font-ui);
+    cursor:pointer;
+  }
+  .icon-btn{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:6px;
+    padding:10px 6px 8px;
+    background:var(--panel-alt);
+    border:1px solid var(--border);
+    border-radius:5px;
+    color:var(--text-dim);
+    font-size:11.5px;
+    transition:border-color .12s ease,color .12s ease,background-color .12s ease;
+  }
+  .icon-btn svg{width:22px;height:22px;stroke:currentColor;}
+  .icon-btn:hover:not(:disabled){color:var(--text);border-color:var(--border-strong);}
+  .icon-btn.active{
+    color:var(--accent-strong);
+    border-color:var(--accent);
+    background:var(--accent-soft);
+  }
+  .icon-btn:disabled{opacity:0.35;cursor:not-allowed;}
+
+  .text-btn{
+    padding:9px 12px;
+    background:var(--panel-alt);
+    border:1px solid var(--border);
+    border-radius:5px;
+    color:var(--text);
+    font-size:13px;
+    font-weight:500;
+    transition:border-color .12s ease,background-color .12s ease,color .12s ease;
+  }
+  .text-btn:hover:not(:disabled){border-color:var(--border-strong);}
+  .text-btn:disabled{opacity:0.35;cursor:not-allowed;}
+  .text-btn.active{color:var(--accent-strong);border-color:var(--accent);background:var(--accent-soft);}
+  .text-btn.primary{background:var(--accent);border-color:var(--accent);color:#0c1116;}
+  .text-btn.primary:hover:not(:disabled){background:var(--accent-strong);border-color:var(--accent-strong);}
+  .text-btn.full{width:100%;}
+  .text-btn.small{font-size:12.5px;padding:8px 10px;}
+
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+
+  /* sliders */
+  .slider-row{margin-bottom:14px;}
+  .slider-row:last-child{margin-bottom:0;}
+  .slider-label{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:6px;
+  }
+  .slider-label span:first-child{font-size:13px;color:var(--text);}
+  .slider-label span.value{font-family:var(--font-mono);font-size:12.5px;color:var(--accent-strong);}
+
+  input[type=range]{
+    -webkit-appearance:none;
+    appearance:none;
+    width:100%;
+    height:4px;
+    border-radius:2px;
+    background:var(--border-strong);
+    outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:15px;height:15px;border-radius:50%;
+    background:var(--accent);
+    border:2px solid #0c1116;
+    cursor:pointer;
+    margin-top:0;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:15px;height:15px;border-radius:50%;
+    background:var(--accent);
+    border:2px solid #0c1116;
+    cursor:pointer;
+  }
+  input[type=range]:disabled{opacity:0.35;}
+
+  .motion-dir{display:none;gap:8px;margin-top:10px;}
+  .motion-dir.show{display:flex;}
+
+  .selection-actions{display:flex;gap:8px;}
+  .selection-actions .text-btn{flex:1;}
+
+  footer.note{
+    margin-top:18px;
+    font-size:12px;
+    color:var(--text-faint);
+    text-align:center;
+  }
+
+  a, a:visited{color:var(--accent-strong);}
+
+  ::selection{background:var(--accent-soft);}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <h1>Selective Blur</h1>
+    <p>Blur any shaped region of an image without splitting the file. Draw a shape over the part you want blurred, adjust it, and export.</p>
+  </header>
+
+  <div class="layout">
+
+    <!-- ============ CANVAS STAGE ============ -->
+    <div class="stage">
+      <div class="stage-toolbar">
+        <button class="text-btn small" id="changeImageBtn" style="display:none;">Change image</button>
+        <span class="file-info" id="fileInfo"></span>
+      </div>
+
+      <div class="canvas-frame" id="canvasFrame">
+        <div class="dropzone" id="dropzone">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+          <div class="primary">Drop an image here, or click to browse</div>
+          <div class="secondary">Your photo stays in the browser. Nothing is uploaded anywhere.</div>
+        </div>
+        <canvas id="displayCanvas" style="display:none;"></canvas>
+      </div>
+
+      <div class="error-msg" id="errorMsg" hidden></div>
+      <div class="hint-row" id="hintRow"></div>
+    </div>
+
+    <!-- ============ CONTROL PANEL ============ -->
+    <div class="panel">
+
+      <div class="panel-section">
+        <h2>Shape</h2>
+        <div class="btn-row">
+          <button class="icon-btn" data-shape="rect" disabled title="Rectangle">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.7"><rect x="3" y="6" width="18" height="12" rx="1.2"/></svg>
+            Rectangle
+          </button>
+          <button class="icon-btn" data-shape="square" disabled title="Square">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.7"><rect x="5" y="5" width="14" height="14" rx="1.2"/></svg>
+            Square
+          </button>
+          <button class="icon-btn" data-shape="hexagon" disabled title="Hexagon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.7"><polygon points="12,3 20,7.8 20,16.2 12,21 4,16.2 4,7.8"/></svg>
+            Hexagon
+          </button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h2>Quick regions</h2>
+        <div class="two-col">
+          <button class="text-btn small" data-preset="top" disabled>Top half</button>
+          <button class="text-btn small" data-preset="bottom" disabled>Bottom half</button>
+          <button class="text-btn small" data-preset="left" disabled>Left half</button>
+          <button class="text-btn small" data-preset="right" disabled>Right half</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h2>Blur type</h2>
+        <div class="btn-row">
+          <button class="text-btn" data-blurtype="gaussian" disabled>Gaussian</button>
+          <button class="text-btn" data-blurtype="pixelate" disabled>Pixelate</button>
+          <button class="text-btn" data-blurtype="motion" disabled>Motion</button>
+        </div>
+        <div class="motion-dir" id="motionDirRow">
+          <button class="text-btn small" data-motiondir="horizontal" disabled style="flex:1;">Horizontal</button>
+          <button class="text-btn small" data-motiondir="vertical" disabled style="flex:1;">Vertical</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h2>Adjust</h2>
+        <div class="slider-row">
+          <div class="slider-label"><span>Blur amount</span><span class="value" id="intensityValue">45</span></div>
+          <input type="range" id="intensitySlider" min="0" max="100" step="1" value="45" disabled>
+        </div>
+        <div class="slider-row">
+          <div class="slider-label"><span>Edge softness</span><span class="value" id="featherValue">12px</span></div>
+          <input type="range" id="featherSlider" min="0" max="60" step="1" value="12" disabled>
+        </div>
+        <div class="slider-row">
+          <div class="slider-label"><span>Rotation</span><span class="value" id="rotationValue">0°</span></div>
+          <input type="range" id="rotationSlider" min="-180" max="180" step="1" value="0" disabled>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h2>Selection</h2>
+        <div class="selection-actions">
+          <button class="text-btn" id="cancelBtn" disabled>Cancel</button>
+          <button class="text-btn primary" id="applyBtn" disabled>Apply blur</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h2>History</h2>
+        <div class="two-col">
+          <button class="text-btn small" id="undoBtn" disabled>Undo</button>
+          <button class="text-btn small" id="resetBtn" disabled>Reset image</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h2>Export</h2>
+        <div class="two-col">
+          <button class="text-btn small" id="downloadPng" disabled>Download PNG</button>
+          <button class="text-btn small" id="downloadJpg" disabled>Download JPG</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <footer class="note">Everything runs locally in your browser. Images are never sent anywhere.</footer>
+</div>
+
+<input type="file" id="fileInput" accept="image/*" style="display:none;">
+
+<script>
+(function(){
+  'use strict';
+
+  // ---------------- DOM refs ----------------
+  const dropzone = document.getElementById('dropzone');
+  const canvasFrame = document.getElementById('canvasFrame');
+  const displayCanvas = document.getElementById('displayCanvas');
+  const dctx = displayCanvas.getContext('2d');
+  const fileInput = document.getElementById('fileInput');
+  const changeImageBtn = document.getElementById('changeImageBtn');
+  const fileInfo = document.getElementById('fileInfo');
+  const errorMsg = document.getElementById('errorMsg');
+  const hintRow = document.getElementById('hintRow');
+
+  const shapeButtons = Array.from(document.querySelectorAll('[data-shape]'));
+  const presetButtons = Array.from(document.querySelectorAll('[data-preset]'));
+  const blurTypeButtons = Array.from(document.querySelectorAll('[data-blurtype]'));
+  const motionDirButtons = Array.from(document.querySelectorAll('[data-motiondir]'));
+  const motionDirRow = document.getElementById('motionDirRow');
+
+  const intensitySlider = document.getElementById('intensitySlider');
+  const intensityValue = document.getElementById('intensityValue');
+  const featherSlider = document.getElementById('featherSlider');
+  const featherValue = document.getElementById('featherValue');
+  const rotationSlider = document.getElementById('rotationSlider');
+  const rotationValue = document.getElementById('rotationValue');
+
+  const cancelBtn = document.getElementById('cancelBtn');
+  const applyBtn = document.getElementById('applyBtn');
+  const undoBtn = document.getElementById('undoBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const downloadPngBtn = document.getElementById('downloadPng');
+  const downloadJpgBtn = document.getElementById('downloadJpg');
+
+  const allDisableable = [
+    ...shapeButtons, ...presetButtons, ...blurTypeButtons, ...motionDirButtons,
+    intensitySlider, featherSlider, rotationSlider,
+    cancelBtn, applyBtn, undoBtn, resetBtn, downloadPngBtn, downloadJpgBtn
+  ];
+
+  // ---------------- state ----------------
+  let img = null;
+  let W = 0, H = 0;
+  let baseCanvas = document.createElement('canvas');
+  let baseCtx = baseCanvas.getContext('2d');
+  let originalCanvas = null;
+  let history = [];
+  const MAX_HISTORY = 15;
+  const MAX_DIM = 2400;
+
+  let activeShape = null; // {type,cx,cy,w,h,rotation}
+  let blurType = 'gaussian';
+  let intensity = 45;
+  let feather = 12;
+  let motionDir = 'horizontal';
+  let baseVersion = 0;
+  let blurredCache = { key: '', canvas: null };
+  let drag = null;
+
+  // ---------------- helpers: geometry ----------------
+  function cloneCanvas(src){
+    const c = document.createElement('canvas');
+    c.width = src.width; c.height = src.height;
+    c.getContext('2d').drawImage(src, 0, 0);
+    return c;
+  }
+
+  function getScale(){
+    const rect = displayCanvas.getBoundingClientRect();
+    if (!rect.width) return 1;
+    return W / rect.width;
+  }
+
+  function getCanvasPos(evt){
+    const rect = displayCanvas.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const scaleY = H / rect.height;
+    return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientY - rect.top) * scaleY };
+  }
+
+  function localToGlobal(lx, ly, cx, cy, rotDeg){
+    const rad = rotDeg * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    return { x: cx + lx * cos - ly * sin, y: cy + lx * sin + ly * cos };
+  }
+
+  function toLocalFrame(pos, origin, rotDeg){
+    const dx = pos.x - origin.x, dy = pos.y - origin.y;
+    const rad = -rotDeg * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    return { x: dx * cos - dy * sin, y: dx * sin + dy * cos };
+  }
+
+  function toLocal(px, py, shape){
+    return toLocalFrame({x:px,y:py}, {x:shape.cx,y:shape.cy}, shape.rotation);
+  }
+
+  function addShapePath(ctx, type, w, h){
+    if (type === 'hexagon'){
+      const rx = w/2, ry = h/2;
+      for (let i=0;i<6;i++){
+        const ang = (Math.PI/180)*(60*i - 90);
+        const x = rx*Math.cos(ang), y = ry*Math.sin(ang);
+        if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+    } else {
+      ctx.rect(-w/2, -h/2, w, h);
+    }
+  }
+
+  // ---------------- blur + mask compositing ----------------
+  function getBlurredCanvas(){
+    const key = blurType + '|' + intensity + '|' + motionDir + '|' + baseVersion;
+    if (blurredCache.key === key) return blurredCache.canvas;
+
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+
+    if (blurType === 'gaussian'){
+      const px = (intensity/100) * 40;
+      ctx.filter = px > 0.01 ? ('blur(' + px + 'px)') : 'none';
+      ctx.drawImage(baseCanvas, 0, 0);
+      ctx.filter = 'none';
+    } else if (blurType === 'pixelate'){
+      const block = Math.max(1, Math.round(1 + (intensity/100)*39));
+      if (block <= 1){
+        ctx.drawImage(baseCanvas, 0, 0);
+      } else {
+        const sw = Math.max(1, Math.round(W/block));
+        const sh = Math.max(1, Math.round(H/block));
+        const small = document.createElement('canvas');
+        small.width = sw; small.height = sh;
+        small.getContext('2d').drawImage(baseCanvas, 0, 0, sw, sh);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(small, 0, 0, sw, sh, 0, 0, W, H);
+      }
+    } else if (blurType === 'motion'){
+      const dist = (intensity/100) * 60;
+      if (dist < 0.5){
+        ctx.drawImage(baseCanvas, 0, 0);
+      } else {
+        const steps = 24;
+        ctx.globalAlpha = 1/steps;
+        for (let i=0;i<steps;i++){
+          const t = (i/(steps-1)) - 0.5;
+          const dx = motionDir === 'horizontal' ? t*dist : 0;
+          const dy = motionDir === 'vertical' ? t*dist : 0;
+          ctx.drawImage(baseCanvas, dx, dy);
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    blurredCache = { key: key, canvas: c };
+    return c;
+  }
+
+  function buildMask(shape, featherPx, w, h){
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.save();
+    ctx.translate(shape.cx, shape.cy);
+    ctx.rotate(shape.rotation * Math.PI/180);
+    ctx.beginPath();
+    addShapePath(ctx, shape.type, shape.w, shape.h);
+    ctx.closePath();
+    ctx.filter = featherPx > 0 ? ('blur(' + featherPx + 'px)') : 'none';
+    ctx.fillStyle = '#000';
+    ctx.fill();
+    ctx.restore();
+    return c;
+  }
+
+  function buildComposite(){
+    const out = document.createElement('canvas');
+    out.width = W; out.height = H;
+    const octx = out.getContext('2d');
+    octx.drawImage(baseCanvas, 0, 0);
+    if (activeShape){
+      const blurred = getBlurredCanvas();
+      const mask = buildMask(activeShape, feather, W, H);
+      const tmp = document.createElement('canvas');
+      tmp.width = W; tmp.height = H;
+      const tctx = tmp.getContext('2d');
+      tctx.drawImage(blurred, 0, 0);
+      tctx.globalCompositeOperation = 'destination-in';
+      tctx.drawImage(mask, 0, 0);
+      octx.drawImage(tmp, 0, 0);
+    }
+    return out;
+  }
+
+  // ---------------- handles ----------------
+  function getHandlePositions(shape){
+    const w = shape.w, h = shape.h, cx = shape.cx, cy = shape.cy, rotation = shape.rotation, type = shape.type;
+    const pts = [];
+    const corners = [['tl',-w/2,-h/2],['tr',w/2,-h/2],['br',w/2,h/2],['bl',-w/2,h/2]];
+    corners.forEach(function(c){
+      const g = localToGlobal(c[1], c[2], cx, cy, rotation);
+      pts.push({role:c[0], x:g.x, y:g.y});
+    });
+    if (type !== 'square'){
+      const edges = [['top',0,-h/2],['bottom',0,h/2],['left',-w/2,0],['right',w/2,0]];
+      edges.forEach(function(e){
+        const g = localToGlobal(e[1], e[2], cx, cy, rotation);
+        pts.push({role:e[0], x:g.x, y:g.y});
+      });
+    }
+    const rotOffset = 30 * getScale();
+    const rg = localToGlobal(0, -h/2 - rotOffset, cx, cy, rotation);
+    pts.push({role:'rotate', x:rg.x, y:rg.y});
+    return pts;
+  }
+
+  function hitTestHandles(pos, shape){
+    const scale = getScale();
+    const hitR = 14 * scale;
+    const handles = getHandlePositions(shape);
+    for (let i=0;i<handles.length;i++){
+      const h = handles[i];
+      const d = Math.hypot(pos.x-h.x, pos.y-h.y);
+      if (d <= hitR) return h.role;
+    }
+    const local = toLocal(pos.x, pos.y, shape);
+    if (Math.abs(local.x) <= shape.w/2 && Math.abs(local.y) <= shape.h/2) return 'body';
+    return null;
+  }
+
+  const CORNER_LOCAL = {
+    tl:[-1,-1], tr:[1,-1], br:[1,1], bl:[-1,1]
+  };
+  const CORNER_OPPOSITE = { tl:'br', tr:'bl', br:'tl', bl:'tr' };
+  const EDGE_OPPOSITE = { top:'bottom', bottom:'top', left:'right', right:'left' };
+
+  function edgeLocalPos(role, w, h){
+    if (role==='top') return [0,-h/2];
+    if (role==='bottom') return [0,h/2];
+    if (role==='left') return [-w/2,0];
+    return [w/2,0];
+  }
+
+  // ---------------- rendering ----------------
+  function drawShapeUI(ctx, shape){
+    const scale = getScale();
+    ctx.save();
+    ctx.translate(shape.cx, shape.cy);
+    ctx.rotate(shape.rotation * Math.PI/180);
+    ctx.lineWidth = 2*scale;
+    ctx.strokeStyle = '#4c9aff';
+    ctx.setLineDash([6*scale, 4*scale]);
+    ctx.beginPath();
+    addShapePath(ctx, shape.type, shape.w, shape.h);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    const handles = getHandlePositions(shape);
+    const rot = handles.find(function(h){return h.role==='rotate';});
+    if (rot){
+      const topMid = localToGlobal(0, -shape.h/2, shape.cx, shape.cy, shape.rotation);
+      ctx.beginPath();
+      ctx.moveTo(topMid.x, topMid.y);
+      ctx.lineTo(rot.x, rot.y);
+      ctx.strokeStyle = '#4c9aff';
+      ctx.lineWidth = 1.5*scale;
+      ctx.stroke();
+    }
+    handles.forEach(function(h){
+      ctx.beginPath();
+      ctx.fillStyle = '#4c9aff';
+      ctx.strokeStyle = '#0c1116';
+      ctx.lineWidth = 2*scale;
+      const r = (h.role==='rotate' ? 7 : 6) * scale;
+      ctx.arc(h.x, h.y, r, 0, Math.PI*2);
+      ctx.fill();
+      ctx.stroke();
+    });
+  }
+
+  function render(){
+    if (!img) return;
+    dctx.clearRect(0,0,W,H);
+    const composite = buildComposite();
+    dctx.drawImage(composite, 0, 0);
+    if (activeShape) drawShapeUI(dctx, activeShape);
+    updateSelectionUI();
+  }
+
+  // ---------------- selection / shape lifecycle ----------------
+  function setShapeTool(type){
+    if (!img) return;
+    if (activeShape){
+      activeShape.type = type;
+      if (type === 'square'){
+        const s = Math.max(activeShape.w, activeShape.h);
+        activeShape.w = s; activeShape.h = s;
+      }
+    } else {
+      const w = type==='square' ? Math.min(W,H)*0.4 : W*0.4;
+      const h = type==='square' ? w : H*0.4;
+      activeShape = { type:type, cx:W/2, cy:H/2, w:w, h:h, rotation:0 };
+    }
+    syncShapeButtons(type);
+    syncControlsFromShape();
+    render();
+  }
+
+  function setPreset(dir){
+    if (!img) return;
+    let s;
+    if (dir==='top') s = {type:'rect', cx:W/2, cy:H/4, w:W, h:H/2, rotation:0};
+    else if (dir==='bottom') s = {type:'rect', cx:W/2, cy:H*3/4, w:W, h:H/2, rotation:0};
+    else if (dir==='left') s = {type:'rect', cx:W/4, cy:H/2, w:W/2, h:H, rotation:0};
+    else s = {type:'rect', cx:W*3/4, cy:H/2, w:W/2, h:H, rotation:0};
+    activeShape = s;
+    syncShapeButtons('rect');
+    syncControlsFromShape();
+    render();
+  }
+
+  function syncShapeButtons(type){
+    shapeButtons.forEach(function(b){ b.classList.toggle('active', b.dataset.shape===type); });
+  }
+
+  function syncControlsFromShape(){
+    if (!activeShape) return;
+    rotationSlider.value = Math.round(activeShape.rotation);
+    rotationValue.textContent = Math.round(activeShape.rotation) + '\u00B0';
+  }
+
+  function updateSelectionUI(){
+    const has = !!activeShape;
+    cancelBtn.disabled = !has;
+    applyBtn.disabled = !has || !img;
+  }
+
+  function cancelSelection(){
+    activeShape = null;
+    syncShapeButtons(null);
+    render();
+  }
+
+  function applyBlur(){
+    if (!activeShape || !img) return;
+    const composite = buildComposite();
+    history.push(cloneCanvas(baseCanvas));
+    if (history.length > MAX_HISTORY) history.shift();
+    baseCtx.clearRect(0,0,W,H);
+    baseCtx.drawImage(composite, 0, 0);
+    baseVersion++;
+    activeShape = null;
+    syncShapeButtons(null);
+    updateUndoState();
+    render();
+  }
+
+  function undo(){
+    if (history.length === 0) return;
+    const prev = history.pop();
+    baseCtx.clearRect(0,0,W,H);
+    baseCtx.drawImage(prev, 0, 0);
+    baseVersion++;
+    updateUndoState();
+    render();
+  }
+
+  function resetImage(){
+    if (!originalCanvas) return;
+    history = [];
+    baseCtx.clearRect(0,0,W,H);
+    baseCtx.drawImage(originalCanvas, 0, 0);
+    baseVersion++;
+    activeShape = null;
+    syncShapeButtons(null);
+    updateUndoState();
+    render();
+  }
+
+  function updateUndoState(){
+    undoBtn.disabled = history.length === 0;
+    resetBtn.disabled = history.length === 0;
+  }
+
+  // ---------------- blur type / sliders ----------------
+  function setBlurType(t){
+    blurType = t;
+    blurTypeButtons.forEach(function(b){ b.classList.toggle('active', b.dataset.blurtype===t); });
+    if (t === 'motion'){ motionDirRow.classList.add('show'); }
+    else { motionDirRow.classList.remove('show'); }
+    motionDirButtons.forEach(function(b){ b.disabled = !(img && t === 'motion'); });
+    render();
+  }
+
+  function setMotionDir(d){
+    motionDir = d;
+    motionDirButtons.forEach(function(b){ b.classList.toggle('active', b.dataset.motiondir===d); });
+    render();
+  }
+
+  intensitySlider.addEventListener('input', function(){
+    intensity = parseFloat(intensitySlider.value);
+    intensityValue.textContent = Math.round(intensity);
+    render();
+  });
+  featherSlider.addEventListener('input', function(){
+    feather = parseFloat(featherSlider.value);
+    featherValue.textContent = Math.round(feather) + 'px';
+    render();
+  });
+  rotationSlider.addEventListener('input', function(){
+    if (!activeShape) return;
+    activeShape.rotation = parseFloat(rotationSlider.value);
+    rotationValue.textContent = Math.round(activeShape.rotation) + '\u00B0';
+    render();
+  });
+
+  shapeButtons.forEach(function(b){ b.addEventListener('click', function(){ setShapeTool(b.dataset.shape); }); });
+  presetButtons.forEach(function(b){ b.addEventListener('click', function(){ setPreset(b.dataset.preset); }); });
+  blurTypeButtons.forEach(function(b){ b.addEventListener('click', function(){ setBlurType(b.dataset.blurtype); }); });
+  motionDirButtons.forEach(function(b){ b.addEventListener('click', function(){ setMotionDir(b.dataset.motiondir); }); });
+
+  cancelBtn.addEventListener('click', cancelSelection);
+  applyBtn.addEventListener('click', applyBlur);
+  undoBtn.addEventListener('click', undo);
+  resetBtn.addEventListener('click', resetImage);
+
+  setBlurType('gaussian');
+  setMotionDir('horizontal');
+
+  // ---------------- pointer interaction ----------------
+  displayCanvas.addEventListener('pointerdown', function(e){
+    if (!activeShape) return;
+    const pos = getCanvasPos(e);
+    const role = hitTestHandles(pos, activeShape);
+    if (!role) return;
+    displayCanvas.setPointerCapture(e.pointerId);
+    displayCanvas.style.cursor = 'grabbing';
+    const shapeStart = Object.assign({}, activeShape);
+    let anchorGlobal = null;
+
+    if (CORNER_LOCAL[role]){
+      const oppRole = CORNER_OPPOSITE[role];
+      const sign = CORNER_LOCAL[oppRole];
+      anchorGlobal = localToGlobal(sign[0]*shapeStart.w/2, sign[1]*shapeStart.h/2, shapeStart.cx, shapeStart.cy, shapeStart.rotation);
+    } else if (role==='top'||role==='bottom'||role==='left'||role==='right'){
+      const oppRole = EDGE_OPPOSITE[role];
+      const p = edgeLocalPos(oppRole, shapeStart.w, shapeStart.h);
+      anchorGlobal = localToGlobal(p[0], p[1], shapeStart.cx, shapeStart.cy, shapeStart.rotation);
+    }
+
+    drag = {
+      role: role,
+      shapeStart: shapeStart,
+      anchorGlobal: anchorGlobal,
+      startPos: pos,
+      startCx: shapeStart.cx,
+      startCy: shapeStart.cy
+    };
+  });
+
+  window.addEventListener('pointermove', function(e){
+    if (!drag || !activeShape) return;
+    const pos = getCanvasPos(e);
+
+    if (drag.role === 'body'){
+      const dx = pos.x - drag.startPos.x, dy = pos.y - drag.startPos.y;
+      activeShape.cx = drag.startCx + dx;
+      activeShape.cy = drag.startCy + dy;
+    } else if (drag.role === 'rotate'){
+      const dx = pos.x - activeShape.cx, dy = pos.y - activeShape.cy;
+      let deg = Math.atan2(dy,dx) * 180/Math.PI + 90;
+      while (deg > 180) deg -= 360;
+      while (deg < -180) deg += 360;
+      const nearest15 = Math.round(deg/15)*15;
+      if (Math.abs(deg-nearest15) < 4) deg = nearest15;
+      activeShape.rotation = deg;
+      rotationSlider.value = Math.round(deg);
+      rotationValue.textContent = Math.round(deg) + '\u00B0';
+    } else if (CORNER_LOCAL[drag.role]){
+      const local = toLocalFrame(pos, drag.anchorGlobal, drag.shapeStart.rotation);
+      const sx = local.x < 0 ? -1 : 1, sy = local.y < 0 ? -1 : 1;
+      let newW = Math.max(20, Math.abs(local.x));
+      let newH = Math.max(20, Math.abs(local.y));
+      if (activeShape.type === 'square'){
+        const s = Math.max(newW, newH);
+        newW = s; newH = s;
+      }
+      const lx = sx*newW, ly = sy*newH;
+      const center = localToGlobal(lx/2, ly/2, drag.anchorGlobal.x, drag.anchorGlobal.y, drag.shapeStart.rotation);
+      activeShape.w = newW; activeShape.h = newH;
+      activeShape.cx = center.x; activeShape.cy = center.y;
+      activeShape.rotation = drag.shapeStart.rotation;
+    } else if (drag.role==='top' || drag.role==='bottom'){
+      const local = toLocalFrame(pos, drag.anchorGlobal, drag.shapeStart.rotation);
+      const sy = local.y < 0 ? -1 : 1;
+      const newH = Math.max(20, Math.abs(local.y));
+      const center = localToGlobal(0, sy*newH/2, drag.anchorGlobal.x, drag.anchorGlobal.y, drag.shapeStart.rotation);
+      activeShape.h = newH; activeShape.w = drag.shapeStart.w;
+      activeShape.cx = center.x; activeShape.cy = center.y;
+      activeShape.rotation = drag.shapeStart.rotation;
+    } else if (drag.role==='left' || drag.role==='right'){
+      const local = toLocalFrame(pos, drag.anchorGlobal, drag.shapeStart.rotation);
+      const sx = local.x < 0 ? -1 : 1;
+      const newW = Math.max(20, Math.abs(local.x));
+      const center = localToGlobal(sx*newW/2, 0, drag.anchorGlobal.x, drag.anchorGlobal.y, drag.shapeStart.rotation);
+      activeShape.w = newW; activeShape.h = drag.shapeStart.h;
+      activeShape.cx = center.x; activeShape.cy = center.y;
+      activeShape.rotation = drag.shapeStart.rotation;
+    }
+    render();
+  });
+
+  window.addEventListener('pointerup', function(){
+    drag = null;
+    displayCanvas.style.cursor = 'default';
+  });
+  window.addEventListener('pointercancel', function(){
+    drag = null;
+    displayCanvas.style.cursor = 'default';
+  });
+
+  window.addEventListener('keydown', function(e){
+    if (e.key === 'Escape'){
+      if (drag) { drag = null; }
+      else if (activeShape) { cancelSelection(); }
+    }
+  });
+
+  // ---------------- image loading ----------------
+  function showError(msg){
+    errorMsg.textContent = msg;
+    errorMsg.hidden = false;
+    setTimeout(function(){ errorMsg.hidden = true; }, 4000);
+  }
+
+  function loadImageFile(file){
+    if (!file || file.type.indexOf('image/') !== 0){
+      showError('Please choose an image file.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(e){
+      const image = new Image();
+      image.onload = function(){
+        let iw = image.naturalWidth, ih = image.naturalHeight;
+        if (Math.max(iw,ih) > MAX_DIM){
+          const s = MAX_DIM / Math.max(iw,ih);
+          iw = Math.round(iw*s); ih = Math.round(ih*s);
+        }
+        W = iw; H = ih;
+        baseCanvas.width = W; baseCanvas.height = H;
+        displayCanvas.width = W; displayCanvas.height = H;
+        baseCtx.clearRect(0,0,W,H);
+        baseCtx.drawImage(image, 0, 0, W, H);
+        originalCanvas = cloneCanvas(baseCanvas);
+        history = [];
+        activeShape = null;
+        syncShapeButtons(null);
+        baseVersion++;
+        blurredCache = { key:'', canvas:null };
+        img = image;
+
+        dropzone.style.display = 'none';
+        displayCanvas.style.display = 'block';
+        changeImageBtn.style.display = 'inline-block';
+        fileInfo.textContent = W + '\u00D7' + H;
+        hintRow.textContent = 'Pick a shape, then drag to move, drag a handle to resize, or drag the top handle to rotate.';
+
+        allDisableable.forEach(function(el){ el.disabled = false; });
+        motionDirButtons.forEach(function(b){ b.disabled = !(img && blurType === 'motion'); });
+        updateUndoState();
+        updateSelectionUI();
+        render();
+      };
+      image.onerror = function(){ showError('Could not load that image.'); };
+      image.src = e.target.result;
+    };
+    reader.onerror = function(){ showError('Could not read that file.'); };
+    reader.readAsDataURL(file);
+  }
+
+  dropzone.addEventListener('click', function(){ fileInput.click(); });
+  changeImageBtn.addEventListener('click', function(){ fileInput.click(); });
+  fileInput.addEventListener('change', function(){
+    if (fileInput.files && fileInput.files[0]) loadImageFile(fileInput.files[0]);
+    fileInput.value = '';
+  });
+
+  ['dragover'].forEach(function(evt){
+    dropzone.addEventListener(evt, function(e){ e.preventDefault(); dropzone.classList.add('dragover'); });
+  });
+  ['dragleave','dragend'].forEach(function(evt){
+    dropzone.addEventListener(evt, function(e){ dropzone.classList.remove('dragover'); });
+  });
+  dropzone.addEventListener('drop', function(e){
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) loadImageFile(e.dataTransfer.files[0]);
+  });
+
+  window.addEventListener('paste', function(e){
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (let i=0;i<items.length;i++){
+      if (items[i].type.indexOf('image/') === 0){
+        const file = items[i].getAsFile();
+        if (file) loadImageFile(file);
+        break;
+      }
+    }
+  });
+
+  // ---------------- export ----------------
+  function exportImage(format){
+    if (!img) return;
+    const composite = buildComposite();
+    const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+    const ext = format === 'jpeg' ? 'jpg' : 'png';
+    composite.toBlob(async function(blob){
+      if (!blob){ showError('Could not export the image.'); return; }
+      const filename = 'selective-blur.' + ext;
+      let downloads = null;
+      try {
+        if (window.claude && typeof window.claude.use === 'function'){
+          downloads = await window.claude.use('downloads');
+        }
+      } catch(err){ downloads = null; }
+
+      if (downloads){
+        try {
+          await downloads.save({ filename: filename, data: blob });
+        } catch(err){
+          if (err && err.code !== 'declined'){
+            showError('Could not save the file. Please try again.');
+          }
+        }
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+      }
+    }, mime, 0.92);
+  }
+
+  downloadPngBtn.addEventListener('click', function(){ exportImage('png'); });
+  downloadJpgBtn.addEventListener('click', function(){ exportImage('jpeg'); });
+
+  // initial disabled state
+  allDisableable.forEach(function(el){ el.disabled = true; });
+
+})();
+</script>
+</body>
+</html>
