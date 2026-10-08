@@ -1,0 +1,19 @@
+# Movie Scene Voice Swap - Python requirements
+#
+# --- Installed by Cell 1 of the notebook, on top of Colab's own packages ---
+# Seed-VC's own dependencies are NOT listed here. Cell 1 clones the Seed-VC repo
+# and installs its requirements.txt with the version pins stripped (and without
+# torch, numpy, and gradio, so Colab's working versions are kept).
+demucs
+torchcodec
+protobuf>=5.29,<7
+
+# --- Colab already provides these. Install them yourself only if you run
+# --- the app OUTSIDE Colab (see "Run it locally" in README.md).
+# torch      # install the CUDA build from https://pytorch.org/get-started/locally/
+# numpy
+# gradio
+
+# --- System tools (not pip packages) ---
+# ffmpeg      # must be on PATH; Colab has it preinstalled
+# git         # needed to clone Seed-VC; Colab has it preinstalled
