@@ -1,0 +1,80 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IdeaLink</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef3f1;--card:#f8fbf9;--ink:#44546a;--mut:#7d8c9a;--line:#dce5e1;--blue:#a9cbd6;--lav:#d3cde8;--peach:#f2dccd;--mint:#bfe0cb;--r:14px}
+*{box-sizing:border-box}body{margin:0;font:16px/1.55 Nunito,system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+nav{padding:24px 16px;background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
+nav h1{font-size:22px;margin:0 8px 18px}nav .id{margin:auto 8px 0;font-size:14px;color:var(--mut)}
+nav button{all:unset;cursor:pointer;padding:12px 14px;border-radius:12px;min-height:44px;transition:background .2s}
+nav button:hover{background:var(--line)}nav button.on{background:var(--blue);font-weight:700}
+main{padding:28px;max-width:860px;width:100%}h2{margin:0 0 4px}.sub{color:var(--mut);margin:0 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:14px}
+input,textarea,select{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);font:inherit;margin:6px 0 12px}
+:focus-visible{outline:3px solid var(--lav);outline-offset:1px}textarea{min-height:110px;resize:vertical}
+button.p,button.s{border:0;border-radius:10px;padding:11px 18px;min-height:44px;font:inherit;font-weight:700;cursor:pointer;color:var(--ink);transition:transform .15s}
+button.p{background:var(--blue)}button.s{background:var(--lav)}button:active{transform:scale(.97)}button:disabled{opacity:.5}
+.chip{display:inline-block;padding:2px 10px;border-radius:99px;background:var(--peach);font-size:13px;margin-right:6px}
+.chip.g{background:var(--mint)}.chip.l{background:var(--lav)}.row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.hint{font-size:13px;color:var(--mut);margin:-6px 0 12px}.empty{color:var(--mut);text-align:center;padding:28px}
+.chat{display:grid;grid-template-columns:240px 1fr;gap:14px}.list .item{padding:12px;border-radius:12px;cursor:pointer;margin-bottom:6px;background:var(--card);border:1px solid var(--line)}
+.list .item.on{background:var(--lav)}.msgs{height:340px;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:6px}
+.m{max-width:75%;padding:9px 13px;border-radius:14px;background:var(--peach)}.m.me{align-self:flex-end;background:var(--blue)}
+#toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,80px);background:var(--ink);color:#f4f7f6;padding:11px 20px;border-radius:12px;transition:transform .3s}#toast.show{transform:translate(-50%,0)}
+#auth{max-width:380px;margin:12vh auto;padding:0 16px}.tabs{display:flex;gap:8px;margin-bottom:12px}
+@media(max-width:700px){.app{grid-template-columns:1fr}nav{flex-direction:row;overflow:auto;border:0}nav h1,nav .id{display:none}.chat{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style></head><body>
+<div id="auth" hidden><div class="card"><h1 style="margin-top:0">IdeaLink</h1><p class="sub">Share a problem. Meet people solving the same one. Stay anonymous.</p>
+<div class="tabs"><button class="p" id="tl">Sign in</button><button class="s" id="tr">Create account</button></div>
+<input id="nick" placeholder="Nickname (shown with your private ID)" hidden><input id="em" type="email" placeholder="Email (never shown to anyone)"><input id="pw" type="password" placeholder="Password">
+<button class="p" id="go" style="width:100%">Sign in</button></div></div>
+<div class="app" id="app" hidden><nav><h1>IdeaLink</h1>
+<button data-v="share" class="on">💡 Share an idea</button><button data-v="chats">💬 Conversations</button><button data-v="trend">🔥 Trending</button><button data-v="help">🛟 Help desk</button>
+<div class="id" id="me"></div><button id="out">Sign out</button></nav><main id="main"></main></div><div id="toast" role="status"></div>
+<script>
+const $=s=>document.querySelector(s),esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function api(p,m="GET",b){const r=await fetch("/api"+p,{method:m,headers:{"Content-Type":"application/json"},body:b?JSON.stringify(b):undefined});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||"Something went wrong");return d}
+function toast(t){const e=$("#toast");e.textContent=t;e.className="show";clearTimeout(toast.t);toast.t=setTimeout(()=>e.className="",2800)}
+const guard=f=>async(...a)=>{try{return await f(...a)}catch(e){toast(e.message)}};
+let mode="in",view="share",cur=null,timer;
+function setMode(m){mode=m;$("#nick").hidden=m=="in";$("#go").textContent=m=="in"?"Sign in":"Create account";$("#tl").className=m=="in"?"p":"s";$("#tr").className=m=="in"?"s":"p"}
+$("#tl").onclick=()=>setMode("in");$("#tr").onclick=()=>setMode("up");
+$("#go").onclick=guard(async()=>{const u=await api(mode=="in"?"/login":"/register","POST",{email:$("#em").value,password:$("#pw").value,nickname:$("#nick").value});boot(u)});
+$("#out").onclick=async()=>{await api("/logout","POST");location.reload()};
+document.querySelectorAll("nav [data-v]").forEach(b=>b.onclick=()=>go(b.dataset.v));
+function boot(u){$("#auth").hidden=true;$("#app").hidden=false;$("#me").innerHTML=`${esc(u.nickname)}<br><b>${esc(u.private_id)}</b>`;go("share")}
+function go(v){view=v;clearInterval(timer);document.querySelectorAll("nav [data-v]").forEach(b=>b.classList.toggle("on",b.dataset.v==v));({share,chats,trend,help})[v]()}
+function matchHTML(m){return m.length?m.map(x=>`<div class="card"><div class="row"><div><span class="chip l">${esc(x.private_id)}</span>${esc(x.nickname)}</div><span class="chip g">${x.score}% similar</span></div>
+<h3 style="margin:10px 0 4px">${esc(x.title)}</h3><p style="margin:0 0 12px;color:var(--mut)">${esc(x.statement)}…</p>
+<button class="p" ${x.connected?"disabled":""} data-c="${x.idea_id}">${x.connected?"Request sent":"Connect and collaborate"}</button></div>`).join(""):`<div class="empty">No similar ideas yet. We'll show matches as more people post.</div>`}
+function bindConnect(el){el.querySelectorAll("[data-c]").forEach(b=>b.onclick=guard(async()=>{await api("/connect","POST",{idea_id:+b.dataset.c});b.textContent="Request sent";b.disabled=true;toast("Request sent. Chat opens when they accept.")}))}
+async function share(){$("#main").innerHTML=`<h2>Share an idea</h2><p class="sub">Describe the problem you want to solve. We'll find people facing the same one.</p>
+<div class="card"><label>Title<input id="t" maxlength="140"></label><label>What problem are you solving?<textarea id="s" placeholder="Who is affected, what goes wrong, and what you'd like to try."></textarea></label>
+<div class="hint" id="h">Emails, phone numbers and links are hidden automatically to keep you anonymous.</div><label>Tags<input id="g" placeholder="e.g. health, maths, sensors"></label><button class="p" id="post">Post and find matches</button></div>
+<div id="res"></div><h3>Your ideas</h3><div id="mine"></div>`;
+$("#s").oninput=e=>$("#h").textContent=e.target.value.length<20?`${20-e.target.value.length} more characters to go`:"Looks good. Emails, phone numbers and links are hidden automatically.";
+$("#post").onclick=guard(async()=>{const r=await api("/ideas","POST",{title:$("#t").value,statement:$("#s").value,tags:$("#g").value});$("#res").innerHTML=`<h3>${r.matches.length} people with a similar problem</h3>`+matchHTML(r.matches);bindConnect($("#res"));toast("Idea posted");loadMine()});loadMine()}
+const loadMine=guard(async()=>{const l=await api("/ideas");$("#mine").innerHTML=l.length?l.map(i=>`<div class="card row"><span>${esc(i.title)}</span><button class="s" data-i="${i.id}">See matches</button></div>`).join(""):`<div class="empty">Your posted ideas will appear here.</div>`;
+$("#mine").querySelectorAll("[data-i]").forEach(b=>b.onclick=guard(async()=>{const m=await api(`/ideas/${b.dataset.i}/matches`);$("#res").innerHTML=`<h3>Matches</h3>`+matchHTML(m);bindConnect($("#res"));scrollTo({top:0,behavior:"smooth"})}))});
+async function chats(){$("#main").innerHTML=`<h2>Conversations</h2><p class="sub">Talk only by private ID. Contact details are blocked.</p><div class="chat"><div class="list" id="cl"></div><div class="card" id="cp"><div class="empty">Pick a conversation.</div></div></div>`;
+const l=await api("/connections").catch(()=>[]);$("#cl").innerHTML=l.length?l.map(c=>`<div class="item ${c.id==cur?"on":""}" data-id="${c.id}" data-s="${c.status}"><b>${esc(c.private_id)}</b> ${esc(c.nickname)}<br><small>${esc(c.title)}</small><br>${c.status=="accepted"?'<span class="chip g">Open</span>':c.incoming?`<button class="p" data-a="${c.id}">Accept request</button>`:'<span class="chip">Waiting</span>'}</div>`).join(""):`<div class="empty">No conversations yet. Connect with a match to start.</div>`;
+$("#cl").querySelectorAll("[data-a]").forEach(b=>b.onclick=guard(async e=>{e.stopPropagation();await api(`/connections/${b.dataset.a}/accept`,"POST");toast("Accepted");chats()}));
+$("#cl").querySelectorAll(".item").forEach(i=>i.onclick=()=>{if(i.dataset.s=="accepted"){cur=i.dataset.id;openChat()}});if(cur)openChat()}
+async function openChat(){$("#cl").querySelectorAll(".item").forEach(i=>i.classList.toggle("on",i.dataset.id==cur));
+$("#cp").innerHTML=`<div class="msgs" id="ms"></div><div class="row"><input id="mb" placeholder="Write a message" style="flex:1;margin:0"><button class="p" id="sd">Send</button></div>`;
+const load=async()=>{const m=await api(`/chat/${cur}`).catch(()=>[]);const e=$("#ms");if(!e)return;e.innerHTML=m.length?m.map(x=>`<div class="m ${x.mine?"me":""}">${esc(x.body)}</div>`).join(""):'<div class="empty">Say hello and share what you have tried so far.</div>';e.scrollTop=e.scrollHeight};
+const send=guard(async()=>{const v=$("#mb").value.trim();if(!v)return;$("#mb").value="";await api(`/chat/${cur}`,"POST",{body:v});load()});
+$("#sd").onclick=send;$("#mb").onkeydown=e=>e.key=="Enter"&&send();load();clearInterval(timer);timer=setInterval(load,4000)}
+async function trend(){$("#main").innerHTML=`<h2>Trending projects</h2><p class="sub">Ranked by likes and views, with newer work getting a fair chance.</p>
+<details class="card"><summary><b>Share your project</b></summary><input id="pt" placeholder="Project title"><textarea id="pd" placeholder="What did you build and what did you learn?"></textarea><button class="p" id="pp">Publish</button></details><div id="tl2"></div>`;
+$("#pp").onclick=guard(async()=>{await api("/projects","POST",{title:$("#pt").value,description:$("#pd").value});toast("Published");trend()});
+const l=await api("/trending").catch(()=>[]);$("#tl2").innerHTML=l.length?l.map(p=>`<div class="card"><div class="row"><h3 style="margin:0">${esc(p.title)}</h3><button class="s" data-l="${p.id}">${p.liked?"♥":"♡"} ${p.likes}</button></div><p>${esc(p.description)}</p><span class="chip l">${esc(p.private_id)}</span>${esc(p.nickname)}</div>`).join(""):`<div class="empty">No projects yet. Publish the first one.</div>`;
+$("#tl2").querySelectorAll("[data-l]").forEach(b=>b.onclick=guard(async()=>{await api(`/projects/${b.dataset.l}/like`,"POST");trend()}))}
+async function help(){$("#main").innerHTML=`<h2>Help desk</h2><p class="sub">Report a problem and track it here.</p><div class="card"><select id="tc"><option value="harassment">Harassment</option><option value="spam">Spam</option><option value="plagiarism">Idea theft</option><option value="bug">Bug</option><option value="other">Something else</option></select>
+<input id="ts" placeholder="Subject"><textarea id="td" placeholder="What happened? Include the private ID involved, if any."></textarea><button class="p" id="tb">Send report</button></div><div id="tk"></div>`;
+$("#tb").onclick=guard(async()=>{await api("/tickets","POST",{category:$("#tc").value,subject:$("#ts").value,details:$("#td").value});toast("Report sent");help()});
+const l=await api("/tickets").catch(()=>[]);$("#tk").innerHTML=l.map(t=>`<div class="card"><div class="row"><b>${esc(t.subject)}</b><span class="chip ${t.status=="resolved"?"g":""}">${esc(t.status.replace("_"," "))}</span></div>${t.reply?`<p>${esc(t.reply)}</p>`:""}</div>`).join("")}
+api("/me").then(boot).catch(()=>{$("#auth").hidden=false});
+</script></body></html>
